@@ -1,127 +1,96 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  RECIPES,
+  createInitialFormData,
+  validateOrderForm,
+  submitOrder,
+  generateOrderSummary,
+  getDeliveryTimeSlots,
+  getQuantityOptions
+} from "@/services/orderService";
+import {
+  updateFormFromEvent,
+  formatCurrency,
+  getMinDeliveryDate
+} from "@/utils/formUtils";
+import Button from "@/components/Button";
 
 export default function OrderPage() {
   const router = useRouter();
-  const [formData, setFormData] = useState({
-    // Recipe selection
-    selectedRecipe: "",
-    quantity: 1,
-    specialInstructions: "",
-    
-    // Customer details
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    
-    // Delivery details
-    address: "",
-    city: "",
-    state: "",
-    zipCode: "",
-    deliveryDate: "",
-    deliveryTime: "",
-    
-    // Payment
-    paymentMethod: "card",
-    cardNumber: "",
-    expiryDate: "",
-    cvv: "",
-    cardholderName: "",
-  });
-
+  const [formData, setFormData] = useState(createInitialFormData());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [validationErrors, setValidationErrors] = useState([]);
 
-  // Sample recipe data
-  const recipes = [
-    {
-      id: "butter-chicken",
-      name: "Butter Chicken Masala",
-      price: 24.99,
-      description: "Creamy, aromatic dish with tender chicken in rich tomato-based gravy",
-      image: "/butter-chicken.jpg",
-      prepTime: "30 min",
-      difficulty: "Medium"
-    },
-    {
-      id: "biryani",
-      name: "Chicken Biryani",
-      price: 28.99,
-      description: "Fragrant rice dish with tender chicken and aromatic spices",
-      image: "/biryani.jpg",
-      prepTime: "45 min",
-      difficulty: "Hard"
-    },
-    {
-      id: "dal-makhani",
-      name: "Dal Makhani",
-      price: 18.99,
-      description: "Creamy black lentils slow-cooked with spices and butter",
-      image: "/dal-makhani.jpg",
-      prepTime: "25 min",
-      difficulty: "Easy"
-    },
-    {
-      id: "naan",
-      name: "Garlic Naan",
-      price: 8.99,
-      description: "Soft, fluffy bread brushed with garlic butter",
-      image: "/naan.jpg",
-      prepTime: "15 min",
-      difficulty: "Easy"
-    }
-  ];
-
+  /**
+   * Handle form input changes
+   * @param {Event} e - Form event
+   */
   const handleInputChange = (e) => {
-    const { name, value } = e.target;
+    const updatedFormData = updateFormFromEvent(formData, e);
+    setFormData(updatedFormData);
+    
+    // Clear validation errors when user starts typing
+    if (validationErrors.length > 0) {
+      setValidationErrors([]);
+    }
+  };
+
+  /**
+   * Handle recipe selection
+   * @param {string} recipeId - Selected recipe ID
+   */
+  const handleRecipeSelection = (recipeId) => {
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      selectedRecipe: recipeId
     }));
   };
 
+  /**
+   * Handle form submission
+   * @param {Event} e - Form submit event
+   */
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Validate form
+    const validation = validateOrderForm(formData);
+    if (!validation.isValid) {
+      setValidationErrors(validation.errors);
+      return;
+    }
+
     setIsSubmitting(true);
+    setValidationErrors([]);
     
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setIsSubmitting(false);
-    setSubmitSuccess(true);
-    
-    // Reset form after 3 seconds
-    setTimeout(() => {
-      setSubmitSuccess(false);
-      setFormData({
-        selectedRecipe: "",
-        quantity: 1,
-        specialInstructions: "",
-        firstName: "",
-        lastName: "",
-        email: "",
-        phone: "",
-        address: "",
-        city: "",
-        state: "",
-        zipCode: "",
-        deliveryDate: "",
-        deliveryTime: "",
-        paymentMethod: "card",
-        cardNumber: "",
-        expiryDate: "",
-        cvv: "",
-        cardholderName: "",
-      });
-    }, 3000);
+    try {
+      const result = await submitOrder(formData);
+      
+      if (result.success) {
+        setSubmitSuccess(true);
+        
+        // Reset form after 3 seconds
+        setTimeout(() => {
+          setSubmitSuccess(false);
+          setFormData(createInitialFormData());
+        }, 3000);
+      }
+    } catch (error) {
+      setValidationErrors(["An error occurred while placing your order. Please try again."]);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const selectedRecipeData = recipes.find(recipe => recipe.id === formData.selectedRecipe);
-  const totalPrice = selectedRecipeData ? selectedRecipeData.price * formData.quantity : 0;
+  // Get order summary
+  const orderSummary = formData.selectedRecipe 
+    ? generateOrderSummary(formData.selectedRecipe, formData.quantity)
+    : null;
 
+  // Success state
   if (submitSuccess) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -129,12 +98,12 @@ export default function OrderPage() {
           <div className="text-green-500 text-6xl mb-4">✓</div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Order Placed Successfully!</h2>
           <p className="text-gray-600 mb-6">Thank you for your order. We'll send you a confirmation email shortly.</p>
-          <button
+          <Button
+            variant="primary"
             onClick={() => router.push('/')}
-            className="bg-red-600 text-white px-6 py-2 rounded-md hover:bg-red-700 transition-colors"
           >
             Return to Home
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -166,12 +135,23 @@ export default function OrderPage() {
             <p className="text-red-100">Order your favorite recipes for delivery</p>
           </div>
 
+          {/* Validation Errors */}
+          {validationErrors.length > 0 && (
+            <div className="bg-red-50 border border-red-200 p-4">
+              <ul className="text-red-700 text-sm space-y-1">
+                {validationErrors.map((error, index) => (
+                  <li key={index}>• {error}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="p-6 space-y-8">
             {/* Recipe Selection */}
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Your Recipe</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {recipes.map((recipe) => (
+                {RECIPES.map((recipe) => (
                   <div
                     key={recipe.id}
                     className={`border-2 rounded-lg p-4 cursor-pointer transition-colors ${
@@ -179,7 +159,7 @@ export default function OrderPage() {
                         ? 'border-red-500 bg-red-50'
                         : 'border-gray-200 hover:border-gray-300'
                     }`}
-                    onClick={() => setFormData(prev => ({ ...prev, selectedRecipe: recipe.id }))}
+                    onClick={() => handleRecipeSelection(recipe.id)}
                   >
                     <div className="h-32 bg-gray-200 rounded-md mb-3 flex items-center justify-center">
                       <span className="text-gray-500">{recipe.name}</span>
@@ -188,7 +168,7 @@ export default function OrderPage() {
                     <p className="text-sm text-gray-600 mb-2">{recipe.description}</p>
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-gray-500">{recipe.prepTime} • {recipe.difficulty}</span>
-                      <span className="font-semibold text-red-600">${recipe.price}</span>
+                      <span className="font-semibold text-red-600">{formatCurrency(recipe.price)}</span>
                     </div>
                   </div>
                 ))}
@@ -207,7 +187,7 @@ export default function OrderPage() {
                   onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                 >
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                  {getQuantityOptions().map(num => (
                     <option key={num} value={num}>{num}</option>
                   ))}
                 </select>
@@ -356,7 +336,7 @@ export default function OrderPage() {
                       value={formData.deliveryDate}
                       onChange={handleInputChange}
                       required
-                      min={new Date().toISOString().split('T')[0]}
+                      min={getMinDeliveryDate()}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                     />
                   </div>
@@ -372,11 +352,11 @@ export default function OrderPage() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
                     >
                       <option value="">Select time</option>
-                      <option value="10:00-12:00">10:00 AM - 12:00 PM</option>
-                      <option value="12:00-14:00">12:00 PM - 2:00 PM</option>
-                      <option value="14:00-16:00">2:00 PM - 4:00 PM</option>
-                      <option value="16:00-18:00">4:00 PM - 6:00 PM</option>
-                      <option value="18:00-20:00">6:00 PM - 8:00 PM</option>
+                      {getDeliveryTimeSlots().map(timeSlot => (
+                        <option key={timeSlot} value={timeSlot}>
+                          {timeSlot.replace('-', ' - ').replace(':', '')} {timeSlot.includes('12') ? 'PM' : timeSlot.includes('10') || timeSlot.includes('11') ? 'AM' : 'PM'}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -478,21 +458,21 @@ export default function OrderPage() {
             </div>
 
             {/* Order Summary */}
-            {selectedRecipeData && (
+            {orderSummary && (
               <div className="bg-gray-50 p-4 rounded-lg">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h3>
                 <div className="space-y-2">
                   <div className="flex justify-between">
-                    <span>{selectedRecipeData.name} x {formData.quantity}</span>
-                    <span>${(selectedRecipeData.price * formData.quantity).toFixed(2)}</span>
+                    <span>{orderSummary.recipe.name} x {orderSummary.quantity}</span>
+                    <span>{formatCurrency(orderSummary.subtotal)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Delivery Fee</span>
-                    <span>$5.99</span>
+                    <span>{formatCurrency(orderSummary.deliveryFee)}</span>
                   </div>
                   <div className="border-t pt-2 flex justify-between font-semibold">
                     <span>Total</span>
-                    <span>${(totalPrice + 5.99).toFixed(2)}</span>
+                    <span>{formatCurrency(orderSummary.total)}</span>
                   </div>
                 </div>
               </div>
@@ -500,17 +480,14 @@ export default function OrderPage() {
 
             {/* Submit Button */}
             <div className="flex justify-end">
-              <button
+              <Button
                 type="submit"
+                variant="primary"
+                size="lg"
                 disabled={isSubmitting || !formData.selectedRecipe}
-                className={`px-8 py-3 rounded-md font-medium transition-colors ${
-                  isSubmitting || !formData.selectedRecipe
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-red-600 text-white hover:bg-red-700'
-                }`}
               >
                 {isSubmitting ? 'Processing...' : 'Place Order'}
-              </button>
+              </Button>
             </div>
           </form>
         </div>
